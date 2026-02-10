@@ -7,10 +7,11 @@ langchain-community==0.2.16
 langchain-google-genai==1.0.10
 langchain-core==0.2.43
 langchain-chroma
+google-generativeai
 pandas
 numpy
 scikit-learn
 plotly
 python-dotenv
 requests
-chromadb
+chromadb==0.4.24
