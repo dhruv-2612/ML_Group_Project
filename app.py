@@ -1,5 +1,14 @@
 import asyncio
 import streamlit as st
+
+# --- Page Configuration ---
+st.set_page_config(
+    page_title="Job Intelligence Assistant",
+    page_icon="🎯",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -32,14 +41,6 @@ except ImportError as e:
         from src.utils import clean_job_data
     except ImportError:
         st.error("Critical: Could not find 'src' module in sys.path")
-
-# --- Page Configuration ---
-st.set_page_config(
-    page_title="Job Intelligence Assistant",
-    page_icon="🎯",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 # --- Custom CSS ---
 st.markdown("""
