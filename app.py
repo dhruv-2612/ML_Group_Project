@@ -14,20 +14,24 @@ except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
 # Local imports
+import sys
+project_root = os.path.join(os.getcwd(), 'job-intelligence-assistant')
+if project_root not in sys.path:
+    sys.path.append(project_root)
+
 try:
-    import src.rag_system as rag
-    import src.ml_analyzer as ml
+    from src import rag_system as rag
+    from src import ml_analyzer as ml
     from src.utils import clean_job_data
-except ImportError:
-    # Adjust path if running from root (Group_Project)
-    import sys
-    project_root = os.path.join(os.getcwd(), 'job-intelligence-assistant')
-    if project_root not in sys.path:
-        sys.path.append(project_root)
-    
-    import src.rag_system as rag
-    import src.ml_analyzer as ml
-    from src.utils import clean_job_data
+except ImportError as e:
+    st.error(f"Import Error: {e}. Project root: {project_root}")
+    # Fallback for different deployment layouts
+    try:
+        import src.rag_system as rag
+        import src.ml_analyzer as ml
+        from src.utils import clean_job_data
+    except ImportError:
+        st.error("Critical: Could not find 'src' module in sys.path")
 
 # --- Page Configuration ---
 st.set_page_config(
