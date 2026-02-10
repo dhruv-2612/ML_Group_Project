@@ -6,4 +6,5 @@ logs/
 data/raw/
 # Keep processed data for deployment
 !data/processed/
-!data/embeddings/
+# Ignore embeddings to force rebuild on deployment
+data/embeddings/
