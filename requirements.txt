@@ -16,3 +16,4 @@ python-dotenv
 webdriver-manager
 tqdm
 protobuf==3.20.3
+altair<5
