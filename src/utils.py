@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 # Comprehensive Skill Dictionary for Extraction
 SKILL_CATEGORIES = {
-    'programming': ['Python', 'R', 'SQL', 'JavaScript', 'Java', 'C\+\+', 'Scala'],
+    'programming': ['Python', 'R', 'SQL', 'JavaScript', 'Java', r'C\+\+', 'Scala'],
     'data_tools': ['Tableau', 'Power BI', 'Excel', 'Looker', 'Metabase', 'SAS', 'SPSS', 'Qlik'],
     'product_tools': ['Figma', 'JIRA', 'Confluence', 'Miro', 'Notion', 'Asana', 'Trello'],
     'analytics': ['A/B Testing', 'Google Analytics', 'Mixpanel', 'Amplitude', 'Segment', 'Hotjar'],

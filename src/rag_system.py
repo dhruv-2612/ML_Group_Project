@@ -11,7 +11,12 @@ from langchain_core.documents import Document
 from langchain_core.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, GoogleGenerativeAI
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
+
+# Disable Chroma telemetry
+import chromadb
+chromadb.api.client.SharedSystemClient.clear_system_cache() # Fix for some persistent client issues if any
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
 
 # Local imports
 try:
