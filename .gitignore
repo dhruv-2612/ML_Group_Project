@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+.streamlit/config.toml
+logs/
+data/raw/
+# Keep processed data for deployment
+!data/processed/
+!data/embeddings/

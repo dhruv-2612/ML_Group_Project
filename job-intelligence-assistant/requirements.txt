@@ -1,0 +1,17 @@
+beautifulsoup4
+requests
+selenium
+pandas
+numpy
+scikit-learn
+langchain>=0.3.0
+langchain-community>=0.3.0
+langchain-core>=0.3.0
+langchain-google-genai>=2.0.0
+google-generativeai
+chromadb
+streamlit
+plotly
+python-dotenv
+webdriver-manager
+tqdm
