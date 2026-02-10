@@ -102,8 +102,16 @@ def load_data_and_models():
 
         # Load Vector Store
         # Check if persist dir exists
-        if os.path.exists("data/embeddings/chroma_db"):
-            vectorstore = rag.load_vector_store()
+        persist_dir = "data/embeddings/chroma_db"
+        if os.path.exists(persist_dir):
+            try:
+                vectorstore = rag.load_vector_store()
+            except Exception as e:
+                st.warning(f"Vector store version mismatch detected ({str(e)}). Rebuilding index for compatibility...")
+                import shutil
+                shutil.rmtree(persist_dir, ignore_errors=True)
+                vectorstore = rag.create_vector_store(df)
+                rag.add_career_guides_to_store(vectorstore)
         else:
             st.warning("Vector store not found. Creating one now (this may take a minute)...")
             vectorstore = rag.create_vector_store(df)
