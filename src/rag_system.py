@@ -12,10 +12,9 @@ from langchain_core.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, GoogleGenerativeAI
 from langchain_chroma import Chroma
+from chromadb.config import Settings
 
 # Disable Chroma telemetry
-import chromadb
-chromadb.api.client.SharedSystemClient.clear_system_cache() # Fix for some persistent client issues if any
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
 
 # Local imports
@@ -86,7 +85,8 @@ def create_vector_store(jobs_df: pd.DataFrame, persist_dir: str = "data/embeddin
                 documents=batch,
                 embedding=embeddings,
                 persist_directory=persist_dir,
-                collection_name="job_postings_2026"
+                collection_name="job_postings_2026",
+                client_settings=Settings(anonymized_telemetry=False)
             )
         else:
             vectorstore.add_documents(batch)
@@ -180,7 +180,8 @@ def load_vector_store(persist_dir: str = "data/embeddings/chroma_db") -> Chroma:
     vectorstore = Chroma(
         persist_directory=persist_dir,
         embedding_function=embeddings,
-        collection_name="job_postings_2026"
+        collection_name="job_postings_2026",
+        client_settings=Settings(anonymized_telemetry=False)
     )
     
     logger.info(f"Vector store loaded from {persist_dir}")

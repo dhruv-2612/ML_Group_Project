@@ -1,3 +1,7 @@
+import os
+# Disable telemetry before any other imports
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+
 import asyncio
 import streamlit as st
 
