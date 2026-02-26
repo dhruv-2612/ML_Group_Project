@@ -163,6 +163,7 @@ if 'last_queried_location' not in st.session_state:
     st.session_state.last_queried_location = None
 
 # --- Resource Loading ---
+@st.cache_resource(show_spinner=False)
 def load_data_and_models():
     """Load cleaned data and ML models."""
     try:

@@ -4,7 +4,6 @@ __pycache__/
 .streamlit/config.toml
 logs/
 data/raw/
-# Keep processed data for deployment
+# Keep processed data and embeddings for deployment
 !data/processed/
-# Ignore embeddings to force rebuild on deployment
-data/embeddings/
+!data/embeddings/
