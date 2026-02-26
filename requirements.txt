@@ -1,17 +1,26 @@
-# Core stable dependencies for RAG & ML dashboard
+# Core stable dependencies for RAG & ML dashboard (Verified 2026 LangChain 1.x Stable)
 setuptools
 streamlit==1.35.0
 protobuf<4.21.0
-langchain==0.2.16
-langchain-community==0.2.16
-langchain-google-genai==1.0.10
-langchain-core==0.2.43
+langchain>=1.2.10
+langchain-community>=0.4.1
+langchain-google-genai>=4.2.0
+langchain-core>=1.2.11
 langchain-chroma
-google-generativeai
+langchain-classic>=1.0.1
+langchain-huggingface
+google-genai
 pandas
 numpy
 scikit-learn
 plotly
 python-dotenv
 requests
-chromadb==0.4.24
+chromadb>=1.5.0
+selenium
+webdriver-manager
+tqdm
+beautifulsoup4
+PyPDF2
+mlxtend
+networkx

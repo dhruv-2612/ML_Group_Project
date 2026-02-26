@@ -13,7 +13,6 @@ sys.path.append(os.getcwd())
 try:
     from src.scraper import JobScraper
     from src.scraper_selenium import NaukriSeleniumScraper
-    from src.generate_sample_data import generate_synthetic_job_data
     from src.utils import clean_job_data
     import src.ml_analyzer as ml
     import src.rag_system as rag
@@ -34,72 +33,57 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def run_full_pipeline(keywords_list: list, locations_list: list, num_pages: int = 2, use_selenium: bool = False):
+def run_full_pipeline(keywords_list: list, locations_list: list, num_pages: int = 2, use_selenium: bool = False, start_page: int = 1):
     """
-    Executes the complete Job Intelligence pipeline:
-    Scrape -> Clean -> ML Analysis -> RAG Indexing -> Validation
+    Executes the complete Job Intelligence pipeline.
+    Returns: count of TRULY NEW jobs added to the system.
     """
     start_time = time.time()
     logger.info("🚀 Starting Job Intelligence Pipeline")
-    logger.info(f"Parameters: Keywords={keywords_list}, Locations={locations_list}, Pages={num_pages}, Selenium={use_selenium}")
     
+    # 0. Load existing data count for comparison
+    existing_count = 0
+    if os.path.exists("data/processed/cleaned_jobs.csv"):
+        try:
+            existing_count = len(pd.read_csv("data/processed/cleaned_jobs.csv"))
+        except: pass
+
     # --- STEP 1: SCRAPING ---
-    logger.info("\n--- STEP 1: DATA ACQUISITION ---")
-    
+    # ... (Scraping logic) ...
     if use_selenium:
-        logger.info("Using Selenium Scraper (Deep Scrape enabled)")
         scraper = NaukriSeleniumScraper(headless=True)
         try:
-            scraper.scrape_naukri(keywords_list, locations_list, num_pages=num_pages, deep_scrape=True)
+            scraper.scrape_naukri(keywords_list, locations_list, num_pages=num_pages, deep_scrape=True, start_page=start_page)
         except Exception as e:
             logger.error(f"Selenium Scraping failed: {e}")
-    else:
-        scraper = JobScraper()
-        # Try scrapping
-        try:
-            scraper.scrape_naukri_jobs(keywords_list, locations_list, num_pages=num_pages)
-        except Exception as e:
-            logger.error(f"Standard Scraping failed: {e}")
-        
-    # Check if data was collected
-    raw_files = glob.glob("data/raw/naukri_*.csv")
     
-    if not raw_files:
-        logger.error("❌ No scraped data found in data/raw/. Please check your scraper or internet connection.")
-        logger.info("Pipeline stopped: insufficient data to proceed without synthetic fallback.")
-        return
-    else:
-        logger.info(f"Found {len(raw_files)} raw data files.")
-
-    # --- STEP 2: DATA CLEANING ---
+    # --- STEP 2: DATA CLEANING & PROCESSING ---
     logger.info("\n--- STEP 2: DATA CLEANING & PROCESSING ---")
     try:
-        df_list = []
-        for f in raw_files:
-            try:
-                df_list.append(pd.read_csv(f))
-            except Exception as e:
-                logger.warning(f"Could not read {f}: {e}")
-                
-        if not df_list:
-            logger.error("No data to process. Exiting.")
-            return
+        raw_files = glob.glob("data/raw/naukri_*.csv")
+        if not raw_files:
+            logger.warning("No raw data files found.")
+            return 0
 
+        df_list = [pd.read_csv(f) for f in raw_files]
         raw_df = pd.concat(df_list, ignore_index=True)
-        logger.info(f"Total raw records: {len(raw_df)}")
         
+        # Freshness filter included in clean_job_data
         cleaned_df = clean_job_data(raw_df)
         
-        output_path = "data/processed/cleaned_jobs.csv"
-        os.makedirs("data/processed", exist_ok=True)
-        cleaned_df.to_csv(output_path, index=False)
+        new_total_count = len(cleaned_df)
+        truly_new_added = new_total_count - existing_count
         
-        logger.info(f"Cleaned data saved to {output_path} ({len(cleaned_df)} records)")
-        logger.info(f"Top Companies: {', '.join(cleaned_df['company'].value_counts().head(3).index)}")
+        if truly_new_added <= 0:
+            logger.info("ℹ️ No new unique job postings found after cleaning. Skipping ML and RAG update.")
+            return 0
+            
+        cleaned_df.to_csv("data/processed/cleaned_jobs.csv", index=False)
+        logger.info(f"✅ Success: {truly_new_added} truly new jobs added. Proceeding to ML/RAG...")
         
     except Exception as e:
         logger.error(f"Cleaning failed: {e}")
-        return
+        return 0
 
     # --- STEP 3: ML ANALYSIS ---
     logger.info("\n--- STEP 3: ML MODEL TRAINING & ANALYSIS ---")
@@ -107,73 +91,33 @@ def run_full_pipeline(keywords_list: list, locations_list: list, num_pages: int 
         # Clustering
         clustered_df, kmeans, keywords = ml.cluster_job_roles(cleaned_df, n_clusters=6)
         clustered_df.to_csv("data/processed/job_clusters.csv", index=False)
-        logger.info(f"Clustering complete. Data saved to data/processed/job_clusters.csv")
         
         # Visualization
         ml.plot_clusters_visualization(clustered_df)
         
-        # Skills Analysis (for a sample role)
-        sample_role = keywords_list[0] if keywords_list else "Product Manager"
-        ml.generate_skills_report(clustered_df, role=sample_role)
-        logger.info(f"Generated skills report for {sample_role}")
-        
-        # Salary Model
-        model, feat_imp, metrics, cols = ml.train_salary_predictor(clustered_df)
-        logger.info(f"Salary Model Trained. Metrics: {metrics}")
-        
     except Exception as e:
         logger.error(f"ML Analysis failed: {e}")
-        # Continue to RAG even if ML fails partially? Yes, RAG can work without full ML artifacts if needed.
 
     # --- STEP 4: VECTOR STORE CREATION ---
     logger.info("\n--- STEP 4: RAG SYSTEM INDEXING ---")
     try:
-        # Reload clustered data to ensure we have cluster IDs in vector store
         final_df = pd.read_csv("data/processed/job_clusters.csv")
-        
-        # Create Store
         vectorstore = rag.create_vector_store(final_df)
-        
-        # Add Guides
-        rag.add_career_guides_to_store(vectorstore)
-        
-        logger.info("Vector store successfully created and persisted.")
-        
+        logger.info("Vector store successfully updated.")
     except Exception as e:
-        logger.error(f"Vector store creation failed: {e}")
-        return
-
-    # --- STEP 5: VALIDATION ---
-    logger.info("\n--- STEP 5: SYSTEM VALIDATION ---")
-    try:
-        # Load chain
-        chain, retriever = rag.create_rag_chain(vectorstore)
-        
-        test_q = f"What skills do {keywords_list[0]}s need?"
-        logger.info(f"Testing Query: {test_q}")
-        
-        # Use simple query first
-        result = rag.query_job_intelligence(test_q, chain)
-        
-        print("\n" + "="*40)
-        print("🤖 SAMPLE RESPONSE")
-        print("="*40)
-        print(result['answer'])
-        print("="*40 + "\n")
-        
-    except Exception as e:
-        logger.error(f"Validation failed: {e}")
+        logger.error(f"Vector store update failed: {e}")
 
     # Final Summary
     elapsed = time.time() - start_time
-    logger.info(f"\n✅ Pipeline Complete in {elapsed:.1f} seconds.")
-    logger.info("Ready to launch Streamlit app: streamlit run app.py")
+    logger.info(f"\n✅ Pipeline Complete. Added {truly_new_added} new records in {elapsed:.1f}s.")
+    return truly_new_added
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Job Intelligence Pipeline Runner")
     parser.add_argument("--keywords", type=str, default="Product Manager,Data Analyst", help="Comma-separated job titles")
     parser.add_argument("--locations", type=str, default="Bangalore,Mumbai", help="Comma-separated locations")
     parser.add_argument("--pages", type=int, default=2, help="Pages per keyword/location")
+    parser.add_argument("--start-page", type=int, default=1, help="Page number to start scraping from")
     parser.add_argument("--use-selenium", action="store_true", help="Use Selenium for deep scraping")
     
     args = parser.parse_args()
@@ -181,4 +125,4 @@ if __name__ == "__main__":
     kw_list = [k.strip() for k in args.keywords.split(",")]
     loc_list = [l.strip() for l in args.locations.split(",")]
     
-    run_full_pipeline(kw_list, loc_list, args.pages, args.use_selenium)
+    run_full_pipeline(kw_list, loc_list, args.pages, args.use_selenium, args.start_page)

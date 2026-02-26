@@ -45,7 +45,7 @@ class NaukriSeleniumScraper:
         """Visits a job URL and extracts full description and skills."""
         try:
             self.driver.get(url)
-            time.sleep(random.uniform(4, 6))
+            time.sleep(random.uniform(4, 5))
             
             # 1. Handle "Read More" if present
             try:
@@ -92,68 +92,138 @@ class NaukriSeleniumScraper:
             logger.error(f"Error scraping details for {url}: {e}")
             return "Error", []
 
-    def scrape_naukri(self, keywords, locations, num_pages=1, deep_scrape=True):
+    def scrape_naukri(self, keywords, locations, num_pages=2, deep_scrape=True, start_page=1):
         self.start_driver()
-        all_jobs = []
+        # Dictionary to handle duplicates and merge locations: {job_url: job_dict}
+        jobs_by_url = {} 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
+        # Load existing URLs to avoid redundant deep scraping
+        existing_urls = set()
+        df_path = "data/processed/cleaned_jobs.csv"
+        if os.path.exists(df_path):
+            try:
+                existing_df = pd.read_csv(df_path)
+                if 'job_url' in existing_df.columns:
+                    existing_urls = set(existing_df['job_url'].dropna().unique())
+                    logger.info(f"Loaded {len(existing_urls)} existing URLs to skip deep scraping.")
+            except Exception as e:
+                logger.warning(f"Could not load existing jobs for filtering: {e}")
+
         try:
             for kw in keywords:
                 for loc in locations:
-                    kw_slug = kw.lower().replace(" ", "-")
-                    loc_slug = loc.lower().replace(" ", "-")
+                    # Retry logic: if we get too many duplicates, we try more pages
+                    max_attempts = 2
+                    current_attempt = 1
+                    local_num_pages = num_pages if num_pages > 0 else 2
+                    current_start_page = start_page
                     
-                    for page in range(1, num_pages + 1):
-                        url = f"https://www.naukri.com/{kw_slug}-jobs-in-{loc_slug}-{page}"
-                        logger.info(f"Scraping Page: {url}")
+                    while current_attempt <= max_attempts:
+                        logger.info(f"Attempt {current_attempt} for {kw} in {loc} (Pages: {current_start_page} to {current_start_page + local_num_pages - 1})")
+                        kw_slug = kw.lower().replace(" ", "-")
+                        loc_slug = loc.lower().replace(" ", "-")
                         
-                        self.driver.get(url)
-                        time.sleep(random.uniform(5, 7))
+                        jobs_found_in_attempt = 0
                         
-                        cards = self.driver.find_elements(By.CSS_SELECTOR, ".srp-jobtuple-wrapper, [data-job-id], .jobTuple")
-                        logger.info(f"Found {len(cards)} job summaries on page {page}")
-                        
-                        for card in cards:
-                            try:
-                                title_el = card.find_element(By.CSS_SELECTOR, "a.title, .title")
-                                comp_el = card.find_element(By.CSS_SELECTOR, ".comp-name, .companyName")
-                                
-                                job = {
-                                    'job_title': title_el.text,
-                                    'company': comp_el.text,
-                                    'location': loc,
-                                    'job_url': title_el.get_attribute("href"),
-                                    'source': 'Naukri_Selenium',
-                                    'scraped_date': datetime.now().isoformat()
-                                }
-                                
-                                # Basic info from summary
+                        for page in range(current_start_page, current_start_page + local_num_pages):
+                            url = f"https://www.naukri.com/{kw_slug}-jobs-in-{loc_slug}-{page}"
+                            logger.info(f"Scraping Page: {url}")
+                            
+                            self.driver.get(url)
+                            time.sleep(random.uniform(3, 4))
+                            
+                            cards = self.driver.find_elements(By.CSS_SELECTOR, ".srp-jobtuple-wrapper, [data-job-id], .jobTuple")
+                            logger.info(f"Found {len(cards)} job summaries on page {page}")
+                            
+                            jobs_found_in_attempt += len(cards)
+                            
+                            for card in cards:
                                 try:
-                                    exp_el = card.find_element(By.CSS_SELECTOR, ".exp-wrap, .exp")
-                                    job['experience_required'] = exp_el.text
-                                except: job['experience_required'] = "N/A"
+                                    title_el = card.find_element(By.CSS_SELECTOR, "a.title, .title")
+                                    comp_el = card.find_element(By.CSS_SELECTOR, ".comp-name, .companyName")
+                                    
+                                    job_url = title_el.get_attribute("href")
+                                    
+                                    # Handle Location Merging
+                                    if job_url in jobs_by_url:
+                                        # Already found this job, just update location
+                                        if loc not in jobs_by_url[job_url]['location']:
+                                            jobs_by_url[job_url]['location'].append(loc)
+                                        continue # Skip creating new entry
+                                    
+                                    # New Job
+                                    job = {
+                                        'job_title': title_el.text,
+                                        'company': comp_el.text,
+                                        'location': [loc], # Initialize as list
+                                        'job_url': job_url,
+                                        'source': 'Naukri_Selenium',
+                                        'scraped_date': datetime.now().isoformat()
+                                    }
+                                    
+                                    # Basic info from summary
+                                    try:
+                                        exp_el = card.find_element(By.CSS_SELECTOR, ".exp-wrap, .exp")
+                                        job['experience_required'] = exp_el.text
+                                    except: job['experience_required'] = "N/A"
+                                    
+                                    try:
+                                        sal_el = card.find_element(By.CSS_SELECTOR, ".sal-wrap, .salary")
+                                        job['salary'] = sal_el.text
+                                    except: job['salary'] = "Not Disclosed"
+
+                                    jobs_by_url[job_url] = job
+                                except Exception:
+                                    continue
+
+                        # Check if we should push deeper
+                        # Compare detected new jobs vs existing system data
+                        new_unique_count = 0
+                        for url, job in jobs_by_url.items():
+                            clean_url = url.split('?')[0]
+                            if clean_url not in existing_urls:
+                                new_unique_count += 1
                                 
-                                try:
-                                    sal_el = card.find_element(By.CSS_SELECTOR, ".sal-wrap, .salary")
-                                    job['salary'] = sal_el.text
-                                except: job['salary'] = "Not Disclosed"
+                        logger.info(f"Current session has {len(jobs_by_url)} unique jobs. {new_unique_count} are truly new to system.")
 
-                                all_jobs.append(job)
-                            except Exception:
-                                continue
+                        # Heuristic: If we found very few *truly new* jobs in this attempt, try next pages
+                        # Only applicable if we actually found cards (to avoid infinite loops on empty results)
+                        if jobs_found_in_attempt > 0 and new_unique_count < 3 and current_attempt < max_attempts:
+                             logger.warning("Low volume of new data. Pushing deeper into pagination...")
+                             current_start_page += local_num_pages 
+                             current_attempt += 1
+                             continue
+                        else:
+                             break
 
-            # Deep Scrape Details
-            if deep_scrape and all_jobs:
-                logger.info(f"Starting deep scrape for {len(all_jobs)} jobs...")
-                for job in tqdm(all_jobs, desc="Extracting full details"):
+            # Deep Scrape Details (ONLY for jobs not already in system)
+            all_jobs_list = list(jobs_by_url.values())
+            
+            if deep_scrape and all_jobs_list:
+                # Filter for truly new jobs to deep scrape
+                truly_new_jobs = []
+                for job in all_jobs_list:
+                    clean_url = job['job_url'].split('?')[0]
+                    if clean_url not in existing_urls:
+                        truly_new_jobs.append(job)
+                
+                logger.info(f"Starting deep scrape for {len(truly_new_jobs)} NEW unique jobs...")
+                for job in tqdm(truly_new_jobs, desc="Extracting full details"):
                     if job['job_url']:
                         desc, skills = self.scrape_job_details(job['job_url'])
                         job['job_description'] = desc
                         job['skills_list'] = skills
                         time.sleep(random.uniform(2, 4)) # Responsible scraping
+                
+                # We return ALL jobs found in this session (even if not deep scraped, they might have location updates)
+                # But typically pipeline expects deep details.
+                # Ideally, we should merge this with existing data, but for now we just return what we found.
+                # Ideally we only save the ones we processed + any that were just location updates?
+                # Simpler: Return all found in this session. The pipeline will merge.
             
-            if all_jobs:
-                df = pd.DataFrame(all_jobs)
+            if all_jobs_list:
+                df = pd.DataFrame(all_jobs_list)
                 os.makedirs("data/raw", exist_ok=True)
                 filename = f"data/raw/naukri_deep_scraped_{timestamp}.csv"
                 df.to_csv(filename, index=False)

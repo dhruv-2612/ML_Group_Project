@@ -21,8 +21,49 @@ SKILL_CATEGORIES = {
     'domain': ['Financial Modeling', 'Market Research', 'Strategy', 'Operations', 'Supply Chain', 'User Research', 'Product Roadmap']
 }
 
-# Flatten skill list for regex matching
-ALL_SKILLS = [skill for sublist in SKILL_CATEGORIES.values() for skill in sublist]
+def load_all_skills() -> List[str]:
+    """Loads and cleans skills from skills.csv, master_skills.csv and SKILL_CATEGORIES."""
+    skills = set()
+    # 1. Add base categories
+    for sublist in SKILL_CATEGORIES.values():
+        skills.update(sublist)
+    
+    # 2. Add from skills.csv (Root directory)
+    root_skills_path = "skills.csv"
+    if os.path.exists(root_skills_path):
+        try:
+            # Handle potential header or single column format
+            df_skills = pd.read_csv(root_skills_path)
+            # Find the correct column name (could be 'Skills' or first column)
+            col_name = 'Skills' if 'Skills' in df_skills.columns else df_skills.columns[0]
+            raw_names = df_skills[col_name].dropna().tolist()
+            for name in raw_names:
+                name = str(name).strip()
+                if name:
+                    skills.add(name)
+        except Exception as e:
+            logger.warning(f"Could not load skills.csv from root: {e}")
+
+    # 3. Add from master_skills.csv
+    csv_path = "data/processed/master_skills.csv"
+    if os.path.exists(csv_path):
+        try:
+            df_skills = pd.read_csv(csv_path)
+            raw_names = df_skills['SkillName'].tolist()
+            for name in raw_names:
+                # Add original
+                skills.add(name)
+                # Add cleaned (remove common redundant words)
+                cleaned = re.sub(r'\s+(Programming|Skills|Knowledge|Principles|Software|Tools|Fundamentals|Methodology|Methodologies|Frameworks)$', '', name, flags=re.IGNORECASE)
+                if cleaned != name:
+                    skills.add(cleaned)
+        except Exception as e:
+            logger.warning(f"Could not load master_skills.csv: {e}")
+            
+    return sorted(list(skills), key=len, reverse=True)
+
+import os
+ALL_SKILLS = load_all_skills()
 
 def clean_text(text: Any) -> str:
     """Basic text cleaning for descriptions and titles."""
@@ -86,17 +127,37 @@ def parse_salary(salary_str: Any) -> Tuple[float, float]:
 def extract_skills(text: str) -> List[str]:
     """
     Extracts skills from text using regex matching against the skill dictionary.
-    Returns: Unique list of matched skills.
+    Includes filtering for short/ambiguous terms and a blacklist.
     """
     if not text:
         return []
     
+    # Blacklist of terms that cause false positives (common words or ambiguous abbreviations)
+    BLACKLIST = {'CS', 'IT', 'AS', 'IN', 'R', 'OR', 'FOR', 'AND', 'THE', 'TO', 'WITH', 'BY'}
+    
     found_skills = set()
+    text_lower = text.lower()
+    
     for skill in ALL_SKILLS:
-        # Use word boundaries to avoid matching 'R' in 'Product'
-        pattern = rf'\b{re.escape(skill)}\b'
-        if re.search(pattern, text, re.IGNORECASE):
-            found_skills.add(skill.replace('', '')) # Clean up escaped chars
+        skill_upper = skill.upper()
+        if skill_upper in BLACKLIST:
+            continue
+            
+        # For very short skills (<= 3 chars), be more strict (e.g., case sensitive or specific context)
+        if len(skill) <= 3:
+            # Only match if it's a known high-confidence tech skill like 'SQL', 'PHP', 'AWS', 'C++', 'Git'
+            TECH_SHORT = {'SQL', 'PHP', 'AWS', 'C++', 'GIT', 'R', 'SAP', 'ERP', 'ML', 'AI', 'NLP', 'UX', 'UI'}
+            if skill_upper not in TECH_SHORT:
+                continue
+            
+            # Use word boundaries and check for exact case-insensitive match
+            pattern = rf'\b{re.escape(skill)}\b'
+            if re.search(pattern, text, re.IGNORECASE):
+                found_skills.add(skill)
+        else:
+            pattern = rf'\b{re.escape(skill)}\b'
+            if re.search(pattern, text, re.IGNORECASE):
+                found_skills.add(skill)
             
     return sorted(list(found_skills))
 
@@ -110,6 +171,46 @@ def categorize_experience_level(years: float) -> str:
         return "Senior Level"
     else:
         return "Lead/Principal"
+
+def parse_skills_robust(x):
+    """Unified helper to parse skills with Case Normalization and Cleaning."""
+    if isinstance(x, list): 
+        # Standardize Case (Title Case for display consistency)
+        return sorted(list(set([str(s).strip().title() for s in x if s])))
+    if isinstance(x, str):
+        if x.startswith('[') and x.endswith(']'):
+            try:
+                import ast
+                val = ast.literal_eval(x)
+                return sorted(list(set([str(s).strip().title() for s in val if s])))
+            except: pass
+        # Handle comma separated strings
+        return sorted(list(set([s.strip(" '\"").title() for s in x.split(",") if s.strip()])))
+    return []
+
+def extract_education(text: str) -> List[str]:
+    """
+    Extracts degrees/education from text using regex.
+    """
+    if not text:
+        return []
+    
+    edu_patterns = {
+        'MBA': [r'\bMBA\b', r'\bPGDM\b', r'\bMaster of Business Administration\b'],
+        'B.Tech/B.E': [r'\bB\.?Tech\b', r'\bB\.?E\.?\b', r'\bBachelor of Engineering\b', r'\bBachelor of Technology\b'],
+        'M.Tech/M.E': [r'\bM\.?Tech\b', r'\bM\.?E\.?\b', r'\bMaster of Engineering\b', r'\bMaster of Technology\b'],
+        'Bachelor\'s': [r'\bBachelors?\b', r'\bDegree\b', r'\bUndergraduate\b', r'\bB\.?Sc\b', r'\bB\.?Com\b', r'\bB\.?A\b'],
+        'Master\'s': [r'\bMasters?\b', r'\bPostgraduate\b', r'\bM\.?Sc\b', r'\bM\.?Com\b', r'\bM\.?A\b'],
+        'PhD': [r'\bPhD\b', r'\bPh\.?D\b', r'\bDoctorate\b']
+    }
+    
+    found_edu = set()
+    for edu, patterns in edu_patterns.items():
+        for pattern in patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                found_edu.add(edu)
+                break
+    return sorted(list(found_edu))
 
 def clean_job_data(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -125,12 +226,7 @@ def clean_job_data(df: pd.DataFrame) -> pd.DataFrame:
     if 'job_id' not in clean_df.columns:
         clean_df['job_id'] = [f"job_{i:04d}_{int(time.time())}" for i in range(len(clean_df))]
     
-    # 1. Deduplication
-    initial_len = len(clean_df)
-    clean_df = clean_df.drop_duplicates(subset=['job_title', 'company'], keep='first')
-    logger.info(f"Removed {initial_len - len(clean_df)} duplicates.")
-    
-    # 2. Basic Cleaning
+    # 1. Basic Cleaning (Deduplication moved to step 3)
     clean_df['job_title'] = clean_df['job_title'].apply(clean_text)
     clean_df['company'] = clean_df['company'].apply(clean_text)
     if 'job_description' in clean_df.columns:
@@ -148,15 +244,59 @@ def clean_job_data(df: pd.DataFrame) -> pd.DataFrame:
         'delhi ncr': 'Delhi'
     }
     
-    def standardize_loc(loc):
-        if not isinstance(loc, str): return "Other"
-        loc = loc.lower()
-        for key, val in location_map.items():
-            if key in loc:
-                return val
-        return loc.capitalize()
+    def standardize_loc(loc_entry):
+        # Normalize to list
+        if isinstance(loc_entry, str):
+            # Check if it's a string representation of a list
+            if loc_entry.startswith('[') and loc_entry.endswith(']'):
+                try:
+                    import ast
+                    locs = ast.literal_eval(loc_entry)
+                except:
+                    locs = [loc_entry]
+            else:
+                locs = [loc_entry]
+        elif isinstance(loc_entry, list):
+            locs = loc_entry
+        else:
+            locs = ["Other"]
+            
+        standardized = set()
+        for loc in locs:
+            if not isinstance(loc, str): continue
+            loc_lower = loc.lower()
+            found = False
+            for key, val in location_map.items():
+                if key in loc_lower:
+                    standardized.add(val)
+                    found = True
+                    break
+            if not found:
+                standardized.add(loc.capitalize())
+        
+        return list(standardized)
 
     clean_df['location'] = clean_df['location'].apply(standardize_loc)
+    
+    # Merge duplicates (combine location lists)
+    # Group by URL (most reliable) or Title+Company
+    if 'job_url' in clean_df.columns:
+        # Fill NA urls to allow grouping
+        clean_df['job_url'] = clean_df['job_url'].fillna('')
+        
+        # Aggregation logic
+        def merge_locs(series):
+            merged = set()
+            for x in series:
+                merged.update(x)
+            return list(merged)
+            
+        # We want to keep the FIRST of other columns, but MERGE locations
+        agg_dict = {col: 'first' for col in clean_df.columns if col != 'location' and col != 'job_url'}
+        agg_dict['location'] = merge_locs
+        
+        # Reset index after groupby
+        clean_df = clean_df.groupby('job_url', as_index=False).agg(agg_dict)
     
     # 4. Experience Parsing
     exp_parsed = clean_df['experience_required'].apply(parse_experience)
@@ -175,14 +315,29 @@ def clean_job_data(df: pd.DataFrame) -> pd.DataFrame:
     # Combine title and description for better coverage
     if 'job_description' in clean_df.columns:
         clean_df['skills_extracted'] = (clean_df['job_title'] + " " + clean_df['job_description'].fillna("")).apply(extract_skills)
+        clean_df['education_extracted'] = clean_df['job_description'].fillna("").apply(extract_education)
     else:
         clean_df['skills_extracted'] = clean_df['job_title'].apply(extract_skills)
+        clean_df['education_extracted'] = clean_df['job_title'].apply(extract_education)
         
     clean_df['skills_text'] = clean_df['skills_extracted'].apply(lambda x: ", ".join(x))
     clean_df['num_skills'] = clean_df['skills_extracted'].apply(len)
     
     # 7. Final Polish
     clean_df['scraped_date'] = pd.to_datetime(clean_df['scraped_date'])
+    
+    # --- DATA FRESHNESS FILTER ---
+    # Remove jobs older than 14 days from the current date
+    # Note: Using scraped_date as a proxy for freshness
+    now = pd.Timestamp.now()
+    fourteen_days_ago = now - pd.Timedelta(days=14)
+    
+    initial_count = len(clean_df)
+    clean_df = clean_df[clean_df['scraped_date'] >= fourteen_days_ago]
+    removed_count = initial_count - len(clean_df)
+    
+    if removed_count > 0:
+        logger.info(f"Removed {removed_count} stale job postings (older than 14 days).")
     
     return clean_df
 

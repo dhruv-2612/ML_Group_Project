@@ -4,9 +4,9 @@ import pandas as pd
 from typing import List, Dict, Any, Optional, Tuple
 
 # LangChain imports
-from langchain.memory import ConversationBufferMemory
-from langchain.chains import ConversationalRetrievalChain, RetrievalQA
-from langchain_google_genai import GoogleGenerativeAI
+from langchain_classic.memory import ConversationBufferMemory
+from langchain_classic.chains import ConversationalRetrievalChain, RetrievalQA
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
 
 # Local imports
@@ -40,8 +40,9 @@ def create_conversational_chain(vectorstore: Any, memory: ConversationBufferMemo
     if not os.getenv("GEMINI_API_KEY"):
         raise ValueError("GEMINI_API_KEY not found in environment.")
 
-    llm = GoogleGenerativeAI(
-        model="gemini-1.5-flash", 
+    model_name = os.getenv("MODEL_NAME", "gemini-2.5-flash")
+    llm = ChatGoogleGenerativeAI(
+        model=model_name, 
         google_api_key=os.getenv("GEMINI_API_KEY"), 
         temperature=0.3
     )
@@ -147,7 +148,7 @@ def process_user_query(
             stats = ml.analyze_skills_by_role(jobs_df, role_filter=detected_role)
             if not stats.empty:
                 top = stats.head(8)
-                ml_context = f"ML INSIGHTS: Top skills for {detected_role}: {', '.join(top['skills_list'].tolist())}. "
+                ml_context = f"ML INSIGHTS: Top skills for {detected_role}: {', '.join(top['skill_name'].tolist())}. "
         
         elif detected_intent == 'salary' and detected_role:
             role_df = jobs_df[jobs_df['job_title'].str.contains(detected_role, case=False, na=False)]
@@ -159,8 +160,7 @@ def process_user_query(
         logger.error(f"ML enrichment failed: {e}")
         
     # Augment Query
-    augmented_query = f"{ml_context}
-Question: {query}" if ml_context else query
+    augmented_query = f"{ml_context}\nQuestion: {query}" if ml_context else query
     
     # Execute Chain
     try:
@@ -169,8 +169,7 @@ Question: {query}" if ml_context else query
         source_docs = response.get('source_documents', [])
         
         # Format sources simply
-        formatted_sources = rag.format_response_with_sources("", source_docs).replace("### 📚 Sources & Relevant Jobs:
-", "")
+        formatted_sources = rag.format_response_with_sources("", source_docs).replace("### 📚 Sources & Relevant Jobs:\n", "")
         
         return {
             "answer": answer,
@@ -203,39 +202,28 @@ def generate_personalized_career_plan(
     current_skills = user_profile.get('skills', [])
     years_exp = user_profile.get('years_experience', 0)
     
-    report = f"# 🚀 Personalized Career Roadmap: {current_role} ➝ {target_role}
-
-"
+    report = f"# 🚀 Personalized Career Roadmap: {current_role} ➝ {target_role}\n\n"
     
     # 1. Skill Gap Analysis
     try:
         target_stats = ml.analyze_skills_by_role(jobs_df, role_filter=target_role)
         if not target_stats.empty:
-            top_required = target_stats.head(15)['skills_list'].tolist()
+            top_required = target_stats.head(15)['skill_name'].tolist()
             user_skills_lower = [s.lower() for s in current_skills]
             
             missing = [s for s in top_required if s.lower() not in user_skills_lower]
             existing = [s for s in top_required if s.lower() in user_skills_lower]
             
-            report += "## 📊 Skill Gap Analysis
-"
-            report += f"**✅ You Have:** {', '.join(existing) if existing else 'None of the top skills yet'}
-
-"
-            report += f"**⚠️ Critical Gaps:** {', '.join(missing[:5])}
-
-"
+            report += "## 📊 Skill Gap Analysis\n"
+            report += f"**✅ You Have:** {', '.join(existing) if existing else 'None of the top skills yet'}\n\n"
+            report += f"**⚠️ Critical Gaps:** {', '.join(missing[:5])}\n\n"
             
             # Timeline estimation
             est_months = max(2, len(missing) * 1.5) # Heuristic: 1.5 months per major skill
-            report += f"**⏱️ Estimated Transition Timeline:** {est_months:.0f} - {est_months+3:.0f} months
-
-"
+            report += f"**⏱️ Estimated Transition Timeline:** {est_months:.0f} - {est_months+3:.0f} months\n\n"
             
     except Exception as e:
-        report += f"Could not perform deep skill analysis: {e}
-
-"
+        report += f"Could not perform deep skill analysis: {e}\n\n"
     
     # 2. LLM Synthesis for Strategy
     try:
@@ -251,16 +239,11 @@ def generate_personalized_career_plan(
         llm_response = rag.query_job_intelligence(prompt, rag_chain)
         strategy = llm_response['answer']
         
-        report += "## 🗺️ Strategic Learning Path
-"
-        report += strategy + "
-
-"
+        report += "## 🗺️ Strategic Learning Path\n"
+        report += strategy + "\n\n"
         
     except Exception as e:
-        report += f"Could not generate strategic path: {e}
-
-"
+        report += f"Could not generate strategic path: {e}\n\n"
         
     return report
 
